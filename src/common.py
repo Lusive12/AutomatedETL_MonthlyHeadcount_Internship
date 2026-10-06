@@ -1,5 +1,5 @@
-"""
-common.py — Shared utilities for all HR automation modules.
+﻿"""
+common.py - Shared utilities for all HR automation modules.
 
 Implements the 5 Common Business Rules from the specification:
   Rule 1  Normalize numeric IDs  (2102.0 -> "2102")
@@ -73,26 +73,23 @@ def get_required_column_ci(df: pd.DataFrame, target_name: str) -> str:
     return col
 
 
-
-
 def detect_date_format(series: pd.Series) -> str:
     """
     Determine the date format of an entire column by scanning for unambiguous values.
 
     Strategy (column-level, not per-cell):
       - Scan all non-null values in the column.
-      - If the YEAR is first (>1000) → ISO format (YYYY-MM-DD).
-      - If the FIRST part >12 → day is first → format is DD/MM/YYYY.
-      - If the SECOND part >12 → second part can't be a month → format is MM/DD/YYYY.
-      - If no unambiguous value found → assume SAP default: MM/DD/YYYY.
+      - If the YEAR is first (>1000) -> ISO format (YYYY-MM-DD).
+      - If the FIRST part >12 -> day is first -> format is DD/MM/YYYY.
+      - If the SECOND part >12 -> second part can't be a month -> format is MM/DD/YYYY.
+      - If no unambiguous value found -> assume SAP default: MM/DD/YYYY.
 
     Returns one of: "ISO", "DD/MM/YYYY", "MM/DD/YYYY"
     """
     import re
     for raw in series.dropna():
         v = str(raw).strip()
-        # Normalise separator and take date part only (ignore time component)
-        date_part = re.split(r"\s", v)[0]  # "2021-05-06 00:00:00" → "2021-05-06"
+        date_part = re.split(r"\s", v)[0]
         parts = re.split(r"[/\-]", date_part)
         if len(parts) != 3:
             continue
@@ -100,38 +97,29 @@ def detect_date_format(series: pd.Series) -> str:
             a, b, c = int(parts[0]), int(parts[1]), int(parts[2])
         except ValueError:
             continue
-        # Year is first → ISO
         if a > 1000:
             return "ISO"
-        # Year is last (normal case)
         if c > 1000:
             if a > 12:
-                return "DD/MM/YYYY"   # a can only be day, not month
+                return "DD/MM/YYYY"
             if b > 12:
-                return "MM/DD/YYYY"   # b can only be day, not month → a is month
-    # All values have day ≤12 and month ≤12 — cannot distinguish from data alone.
-    # SAP default export format is MM/DD/YYYY.
+                return "MM/DD/YYYY"
     return "MM/DD/YYYY"
 
 
 def normalize_date_column(series: pd.Series) -> pd.Series:
     """
     Normalize an entire date column to DD/MM/YYYY format.
-
-    1. Calls detect_date_format() to lock the column's format from unambiguous rows.
-    2. Applies that single format to EVERY row in the column uniformly.
-    3. Returns DD/MM/YYYY strings. Blank/null values are left blank.
     """
     fmt = detect_date_format(series)
 
     if fmt == "ISO":
-        # ISO: YYYY-MM-DD (possibly with time component like "2021-05-06 00:00:00")
         parse_fmt = "%Y-%m-%d %H:%M:%S"
         fallback_fmt = "%Y-%m-%d"
     elif fmt == "MM/DD/YYYY":
         parse_fmt = "%m/%d/%Y"
         fallback_fmt = None
-    else:  # DD/MM/YYYY — already correct, just clean the format
+    else:
         parse_fmt = "%d/%m/%Y"
         fallback_fmt = None
 
@@ -147,9 +135,10 @@ def normalize_date_column(series: pd.Series) -> pd.Series:
                     return pd.to_datetime(v, format=fallback_fmt).strftime("%d/%m/%Y")
                 except Exception:
                     pass
-        return val  # Leave unchanged if truly unparseable
+        return val
 
     return series.apply(_convert)
+
 
 def audit_counts(df: pd.DataFrame, lookup_col: str) -> dict:
     """

@@ -13,16 +13,16 @@ def build_package():
     root = pathlib.Path(__file__).resolve().parent
     # Jika dijalankan dari folder Monthly HR Report Automation atau ETL Group
     if not (root / "dist").exists() and (root.parent / "Monthly HR Report Automation").exists():
-        root = root.parent / "Monthly HR Report Automation"
+        root = root.parent / "PHA Monthly HR Report Automationv1.5"
 
-    dist_pkg = root / "dist" / "Monthly_HR_Automation_Package"
+    dist_pkg = root / "dist" / "PHA_Monthly_HR_Automation_Packagev1.5"
 
-    print("[1/5] Menyiapkan folder paket distribusi...")
+    print("[1/6] Menyiapkan folder paket distribusi...")
     if dist_pkg.exists():
         shutil.rmtree(dist_pkg)
     dist_pkg.mkdir(parents=True, exist_ok=True)
 
-    print("[2/5] Menyalin hasil kompilasi PyInstaller (_internal & .exe)...")
+    print("[2/6] Menyalin hasil kompilasi PyInstaller (_internal & .exe)...")
     src_dist = root / "dist" / "Run_HR_Automation"
     if not src_dist.exists():
         print(f"ERROR: Folder {src_dist} tidak ditemukan!")
@@ -36,7 +36,7 @@ def build_package():
         else:
             shutil.copy2(item, dest)
 
-    print("[3/5] Menyalin folder config dan input...")
+    print("[3/6] Menyalin folder config dan input...")
     shutil.copytree(root / "config", dist_pkg / "config")
     shutil.copytree(root / "input", dist_pkg / "input")
 
@@ -47,15 +47,57 @@ def build_package():
         except Exception:
             pass
 
-    print("[4/5] Membuat folder output/ dan logs/ kosong...")
+    print("[4/6] Membuat folder output/ dan logs/ kosong...")
     (dist_pkg / "output").mkdir(exist_ok=True)
     (dist_pkg / "logs").mkdir(exist_ok=True)
 
+    print("[5/6] Membuat file HR_USER_GUIDE.txt, RUN_ME.bat, dan menyalin Panduan Word...")
+    guide_content = """# HR Data Automation - Quick Start Guide (PHA Server)
+Selamat datang! Aplikasi ini mengonsolidasikan export data bulanan SAP ke dalam Laporan Akhir (Final HR Topic Report).
+
+---
+## Cara Menjalankan Aplikasi (3 Langkah Mudah):
+1. Langkah 1: Buka folder 'input/' dan masukkan file-file SAP terbaru ke dalam subfolder yang sesuai.
+2. Langkah 2: Klik ganda file 'Run_HR_Automation.exe' (atau 'RUN_ME.bat').
+3. Langkah 3: Setelah proses selesai, buka folder 'output/' untuk mengambil:
+   - FINAL_HR_Topic_Report_YYYYMMDD.xlsx (Laporan gabungan 46 kolom)
+   - 00_processing_summary.xlsx (Ringkasan audit & status data)
+
+---
+## Referensi Subfolder Input:
+- input/Shared/
+    -> PHA_PQAH.xlsx, PHA_Headings.xlsx, PHA_Direct_Spv.xlsx, PHA_PA0105.xlsx, PHA_Job_Layer.xlsx, PHA_Employee_Level.xlsx, PHA_PA0021.xlsx
+- input/Contract Type & Contract End Data/
+    -> PHA_PA0016.xlsx, Contract Type_PHA_PA0016.xlsx
+- input/Education, Institute, Branch of Study/
+    -> PHA_PA0022.xlsx, Order_PHA_PA0022.xlsx, PHA_Branch of Study.xlsx
+- input/Entity, Division, Area, Function/
+    -> PHA_PA9000.xlsx
+- input/General Cost Center & Cost Center Text/
+    -> PHA_PA0027_01.xlsx, PHA_PA0027_02.xlsx, PHA_CSKT.xlsx
+- input/Join Date & Year of Service/
+    -> PHA_PA0041.xlsx
+- input/Position Effective Date & Current Tenure/
+    -> PHA_HRP1001.xlsx
+
+---
+## Catatan Penting:
+- Pastikan semua file Excel ditutup sebelum menjalankan aplikasi.
+- Cek folder 'logs/' jika ada kendala untuk melihat histori log dan file audit integritas data (<timestamp>_insight.xlsx).
+- Buku panduan lengkap (.docx) tersedia pada file: PANDUAN_OPERASIONAL_HR_AUTOMATION.docx
+"""
+    (dist_pkg / "HR_USER_GUIDE.txt").write_text(guide_content, encoding="utf-8")
+
     # Launcher batch script
-    bat_content = "@echo off\r\ncd /d \"%~dp0\"\r\ntitle Monthly HR Report Automation\r\nRun_HR_Automation.exe\r\npause\r\n"
+    bat_content = "@echo off\r\ncd /d \"%~dp0\"\r\ntitle Monthly HR Report Automation\r\necho Starting Monthly HR Report Automation...\r\nRun_HR_Automation.exe\r\npause\r\n"
     (dist_pkg / "RUN_ME.bat").write_text(bat_content, encoding="utf-8")
 
-    print("[5/5] Mengompres folder menjadi file ZIP siap kirim...")
+    # Copy Word Guidebook if present
+    word_doc = root / "PANDUAN_OPERASIONAL_HR_AUTOMATION_UPDATED.docx"
+    if word_doc.exists():
+        shutil.copy2(word_doc, dist_pkg / "PANDUAN_OPERASIONAL_HR_AUTOMATION.docx")
+
+    print("[6/6] Mengompres folder menjadi file ZIP siap kirim...")
     zip_path = root / "dist" / "Monthly_HR_Automation_Package.zip"
     if zip_path.exists():
         zip_path.unlink()

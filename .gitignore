@@ -2,6 +2,9 @@ __pycache__
 *.log
 *.pyc
 .venv/
+.phaenv/
+.env/
+
 *.bat
 *.pptx
 *.xlsx
@@ -9,3 +12,4 @@ __pycache__
 dist/
 build/
 *.spec
+

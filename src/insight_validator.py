@@ -1,15 +1,8 @@
 """
-insight_validator.py - Data Integrity & Insight Validation Layer
-=================================================================
-Validates data integrity across pipeline outputs and sources:
-1. Final Report:
-   - Subarea (4 digits) must match last 4 digits of General Expense Cost Center
-   - Layer must not be empty
-   - Name of EE Subgroup containing 'Contract'/'Kontrak' requires Contract Type and Contract End Date
-2. Master IKP_Direct_Spv:
-   - D.Superior or Direct Sup must not be empty
-
-Generates timestamped Excel insight report in the logs/ folder.
+Data Integrity & Validation Engine (PHA Server)
+============================================================
+Checks data integrity rules and generates an audit insight report
+saved in the logs/ folder.
 """
 import logging
 from datetime import datetime
@@ -23,19 +16,14 @@ from src.excel_export import export_df
 def validate_and_export_integrity_insight(
     final_df: pd.DataFrame,
     spv_df: Optional[pd.DataFrame],
-    logger: logging.Logger,
-    log_folder: str = "logs",
-) -> Optional[Path]:
-    """
-    Performs data integrity checks and outputs an insight Excel report in log_folder.
-    """
+    logger: Optional[logging.Logger] = None,
+    log_folder: str = "logs"
+) -> Path:
     issues = []
 
-    # -------------------------------------------------------------
-    # 1. Validation on IKP_Direct_Spv.xlsx
-    # -------------------------------------------------------------
+    # 1. Validation on Direct Supervisor Source Data
     if spv_df is not None and not spv_df.empty:
-        pno_col = find_column_ci(spv_df, "Personnel") or find_column_ci(spv_df, "Personnel No.")
+        pno_col  = find_column_ci(spv_df, "Personnel") or find_column_ci(spv_df, "Personnel No.")
         dsup_col = find_column_ci(spv_df, "D.Superior") or find_column_ci(spv_df, "Superior NIK")
         name_col = find_column_ci(spv_df, "Direct Sup") or find_column_ci(spv_df, "Superior Name")
 
@@ -51,35 +39,33 @@ def validate_and_export_integrity_insight(
                 if dsup_empty and name_empty:
                     issues.append({
                         "Personnel No.": pno,
-                        "Sumber Data": "IKP_Direct_Spv.xlsx",
+                        "Sumber Data": "PHA_Direct_Spv.xlsx",
                         "Kategori Masalah": "Atasan Langsung Kosong",
                         "Deskripsi Masalah": "Kolom 'D.Superior' (NIK Atasan) dan 'Direct Sup' (Nama Atasan) keduanya kosong.",
                     })
                 elif dsup_empty:
                     issues.append({
                         "Personnel No.": pno,
-                        "Sumber Data": "IKP_Direct_Spv.xlsx",
+                        "Sumber Data": "PHA_Direct_Spv.xlsx",
                         "Kategori Masalah": "Atasan Langsung Kosong",
                         "Deskripsi Masalah": "Kolom 'D.Superior' (NIK Atasan) kosong.",
                     })
                 elif name_empty:
                     issues.append({
                         "Personnel No.": pno,
-                        "Sumber Data": "IKP_Direct_Spv.xlsx",
+                        "Sumber Data": "PHA_Direct_Spv.xlsx",
                         "Kategori Masalah": "Atasan Langsung Kosong",
                         "Deskripsi Masalah": "Kolom 'Direct Sup' (Nama Atasan) kosong.",
                     })
 
-    # -------------------------------------------------------------
-    # 2. Validation on Final Report (post-Rule 2.1, 2.2, 2.3 exclusions)
-    # -------------------------------------------------------------
-    pno_col = find_column_ci(final_df, "Personnel No.") or find_column_ci(final_df, "Personnel Number")
-    subarea_col = find_column_ci(final_df, "Subarea")
-    cost_center_col = find_column_ci(final_df, "General Expense Cost Center")
-    layer_col = find_column_ci(final_df, "Layer")
-    subgroup_col = find_column_ci(final_df, "Name of EE Subgroup")
+    # 2. Validation on Final Report
+    pno_col           = find_column_ci(final_df, "Personnel No.") or find_column_ci(final_df, "Personnel Number")
+    subarea_col       = find_column_ci(final_df, "Subarea")
+    cost_center_col   = find_column_ci(final_df, "General Expense Cost Center")
+    layer_col         = find_column_ci(final_df, "Layer")
+    subgroup_col      = find_column_ci(final_df, "Name of EE Subgroup")
     contract_type_col = find_column_ci(final_df, "Contract Type")
-    contract_end_col = find_column_ci(final_df, "Contract End Date")
+    contract_end_col  = find_column_ci(final_df, "Contract End Date")
 
     for idx, row in final_df.iterrows():
         pno = row[pno_col] if pno_col else f"Baris_{idx+1}"
@@ -151,9 +137,7 @@ def validate_and_export_integrity_insight(
                         "Deskripsi Masalah": f"Name of EE Subgroup adalah '{sg_val}', tetapi 'Contract End Date' kosong.",
                     })
 
-    # -------------------------------------------------------------
     # 3. Export to Excel in logs/ folder
-    # -------------------------------------------------------------
     if issues:
         insight_df = pd.DataFrame(issues)
     else:
@@ -164,7 +148,6 @@ def validate_and_export_integrity_insight(
             "Deskripsi Masalah": "Integritas data 100% valid. Tidak ditemukan data kosong atau tidak cocok.",
         }])
 
-    # Determine filename using logger timestamp if available
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if logger and logger.handlers:
         for h in logger.handlers:

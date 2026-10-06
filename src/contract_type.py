@@ -1,31 +1,31 @@
 """
-Automation: Contract Type & Contract End Date
+Automation: Contract Type & Contract End Date (PHA Server)
 ============================================================
-Input:  input/Contract Type & Contract End Data/IKP_PA0016.xlsx
-        input/Contract Type & Contract End Data/IKP_Contract Type.xlsx
-Output: output/intermediate/IKP_PA0016_With_ContractType_Description.xlsx
+Input:  input/Contract Type & Contract End Data/PHA_PA0016.xlsx
+        input/Contract Type & Contract End Data/Contract Type_PHA_PA0016.xlsx
+Output: output/intermediate/PHA_PA0016_With_ContractType_Description.xlsx
 
 Logic:
-  - Load PA0016 and IKP_Contract Type.
-  - Normalize Contract Type ID.
-  - Lookup Contract Type Description from lookup table.
-  - Keep 'Contract Type' description and 'Contract End Date'.
-  - Row preservation check & export to intermediate folder.
+    - Load PA0016 and Contract Type_PHA_PA0016 lookup.
+    - Zero-pad Contract Type codes to 2 digits on both sides ("2" -> "02").
+    - LEFT JOIN lookup onto PA0016 -> "Contract Type Description".
+    - Auto-detect Contract End Date column.
+    - Preserve all PA0016 rows.
 """
 import logging
 from pathlib import Path
 import pandas as pd
 
 from src.common import (normalize_id, load_excel, get_required_column_ci,
-                        find_column_ci)
+                        find_column_ci, normalize_date_column)
 from src.validator import (validate_file_exists, validate_columns,
                             validate_row_count)
 from src.excel_export import export_df
 
 INPUT_DIR   = Path("input/Contract Type & Contract End Data")
-PA0016_FILE = INPUT_DIR / "IKP_PA0016.xlsx"
-LOOKUP_FILE = INPUT_DIR / "Contract Type_IKP_IT0016.xlsx"
-OUTPUT_FILE = Path("output/intermediate/IKP_PA0016_With_ContractType_Description.xlsx")
+PA0016_FILE = INPUT_DIR / "PHA_PA0016.xlsx"
+LOOKUP_FILE = INPUT_DIR / "Contract Type_PHA_PA0016.xlsx"
+OUTPUT_FILE = Path("output/intermediate/PHA_PA0016_With_ContractType_Description.xlsx")
 
 PA0016_REQUIRED = ["Personnel number", "Contract Type"]
 LOOKUP_REQUIRED = ["Contract Type", "Contract Type Text"]
@@ -49,8 +49,8 @@ def run(logger: logging.Logger) -> dict:
         result["Input Rows"] = input_rows
         logger.info(f"[ContractType] PA0016: {input_rows:,} rows | Lookup: {len(lookup):,} rows")
 
-        validate_columns(pa0016, ["Personnel number", "Contract Type"], "IKP_PA0016.xlsx", logger)
-        validate_columns(lookup, ["Contract Type", "Contract Type Text"], "Contract Type_IKP_IT0016.xlsx", logger)
+        validate_columns(pa0016, ["Personnel number", "Contract Type"], "PHA_PA0016.xlsx", logger)
+        validate_columns(lookup, ["Contract Type", "Contract Type Text"], "Contract Type_PHA_PA0016.xlsx", logger)
 
         pno_col   = get_required_column_ci(pa0016, "Personnel number")
         ctype_col = get_required_column_ci(pa0016, "Contract Type")
@@ -79,6 +79,14 @@ def run(logger: logging.Logger) -> dict:
         end_date_col = find_column_ci(result_df, "Contract End Date") or find_column_ci(result_df, "Contract end") or find_column_ci(result_df, "End Date")
         if end_date_col and end_date_col != "Contract End Date":
             result_df["Contract End Date"] = result_df[end_date_col]
+
+        # Normalize Valid Until to consistent DD/MM/YYYY strings.
+        # The source Excel stores some rows as datetime objects and others as
+        # text strings -- this mixed state breaks the sort in assembler.py.
+        valid_until_col = find_column_ci(result_df, "Valid Until")
+        if valid_until_col:
+            result_df[valid_until_col] = normalize_date_column(result_df[valid_until_col])
+            logger.info("[ContractType] Normalized 'Valid Until' to DD/MM/YYYY strings.")
 
         matched = int((result_df["Contract Type Description"].notna() & (result_df["_ct_norm"] != "")).sum())
         unmatched = int((result_df["Contract Type Description"].isna() & (result_df["_ct_norm"] != "")).sum())

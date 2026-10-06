@@ -2,29 +2,10 @@ SHARED FILES — Required by all modules and the Final Assembler
 ==============================================================
 Place these files here before every run:
 
-  IKP_PQAH.xlsx          <- Main employee source file (primary key: Personnel No.)
-                            Contains: Lvl, CoCd, Company Name, ESgrp, Name of EE Subgroup,
-                            PArea, Personnel Area Text, Subarea, P.Subarea Text,
-                            Position, Position Name, Org. Unit, Name of Organizational Unit,
-                            Job, Job Title, Gender, Birth Date, Age, Nationality,
-                            Birthplace, Religion, Marital Status, and more.
-
-  IKP_Headings.xlsx       <- Output column template.
-                            Row 1 only — column names in the exact required order.
-                            The Final Assembler uses this to build the output report.
-                            Make sure there is no empty column at "Column M"
-
-  IKP_Direct Spv.xlsx     <- Supervisor lookup table.
-                            col C = Superior Name
-                            col D = Superior NIK
-                            Join key: Personnel No. from PQAH col A.
-
-  IKP_PA0105.xlsx         <- Email address source.
-                            col Y = Email
-                            Join key: Personnel No.
-
-  IKP_Job Layer.xlsx      <- Layer lookup table.
-                            col B = Layer text
-                            Join key: PQAH col P (Position/Job).
-
-DO NOT rename these files.
+  PHA_PQAH.xlsx           <- Main employee base export
+  PHA_Headings.xlsx       <- Target column template (46 columns)
+  PHA_Direct_Spv.xlsx     <- Direct supervisor mappings (NIK & Name)
+  PHA_PA0105.xlsx         <- Email master records
+  PHA_Job_Layer.xlsx      <- Job to Layer mapping
+  PHA_Employee_Level.xlsx <- Employee level conversion mapping
+  PHA_PA0021.xlsx         <- Family members data (used to count Number of Family Members)

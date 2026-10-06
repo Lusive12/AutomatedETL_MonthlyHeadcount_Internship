@@ -1,8 +1,8 @@
 """
 Automation 2: Join Date & Years of Service
 ============================================================
-Input:  input/Shared/IKP_PQAH.xlsx
-        input/Join Date & Year of Service/IKP_IT0041.xlsx
+Input:  input/Shared/PHA_PQAH.xlsx
+        input/Join Date & Year of Service/PHA_PA0041.xlsx
 Output: output/intermediate/PQAH_Enriched_JoinDate_YoS.xlsx
 
 Logic:
@@ -28,26 +28,26 @@ from src.validator import (validate_file_exists, validate_columns,
 from src.excel_export import export_df
 
 SHARED_DIR  = Path("input/Shared")
-PQAH_FILE   = SHARED_DIR / "IKP_PQAH.xlsx"
-IT0041_FILE = Path("input/Join Date & Year of Service/IKP_IT0041.xlsx")
+PQAH_FILE   = SHARED_DIR / "PHA_PQAH.xlsx"
+PA0041_FILE = Path("input/Join Date & Year of Service/PHA_PA0041.xlsx")
 OUTPUT_FILE = Path("output/intermediate/PQAH_Enriched_JoinDate_YoS.xlsx")
 
 PQAH_KEY   = "Personnel No."
-IT0041_KEY = "Personnel number"
+PA0041_KEY = "Personnel number"
 
 DATE_TYPE_PATTERN = re.compile(r"^date\s*type(\.\d+)?$", re.IGNORECASE)
 DATE_VAL_PATTERN  = re.compile(r"^date\s*for\s*date\s*type(\.\d+)?$", re.IGNORECASE)
 
 
-def _melt_date_pairs(it0041: pd.DataFrame, it0041_key: str, logger: logging.Logger) -> pd.DataFrame:
-    dt_cols = sorted([c for c in it0041.columns if DATE_TYPE_PATTERN.match(str(c).strip())])
-    dv_cols = sorted([c for c in it0041.columns if DATE_VAL_PATTERN.match(str(c).strip())])
+def _melt_date_pairs(PA0041: pd.DataFrame, PA0041_KEY: str, logger: logging.Logger) -> pd.DataFrame:
+    dt_cols = sorted([c for c in PA0041.columns if DATE_TYPE_PATTERN.match(str(c).strip())])
+    dv_cols = sorted([c for c in PA0041.columns if DATE_VAL_PATTERN.match(str(c).strip())])
     if not dt_cols:
-        raise ValueError("[JoinDate] No 'Date type' columns found in IT0041.")
+        raise ValueError("[JoinDate] No 'Date type' columns found in PA0041.")
     logger.info(f"[JoinDate] {len(dt_cols)} Date type pair(s) detected")
     frames = []
     for dt_col, dv_col in zip(dt_cols, dv_cols):
-        s = it0041[[it0041_key, dt_col, dv_col]].copy()
+        s = PA0041[[PA0041_KEY, dt_col, dv_col]].copy()
         s.columns = ["_pno_raw", "date_type", "date_value"]
         frames.append(s)
     return pd.concat(frames, ignore_index=True)
@@ -63,21 +63,21 @@ def run(logger: logging.Logger) -> dict:
 
     try:
         validate_file_exists(PQAH_FILE,   logger)
-        validate_file_exists(IT0041_FILE, logger)
+        validate_file_exists(PA0041_FILE, logger)
 
         pqah   = load_excel(PQAH_FILE)
-        it0041 = load_excel(IT0041_FILE)
+        PA0041 = load_excel(PA0041_FILE)
         input_rows = len(pqah)
         result["Input Rows"] = input_rows
-        logger.info(f"[JoinDate] PQAH: {input_rows:,} rows | IT0041: {len(it0041):,} rows")
+        logger.info(f"[JoinDate] PQAH: {input_rows:,} rows | PA0041: {len(PA0041):,} rows")
 
-        validate_columns(pqah,   [PQAH_KEY],   "IKP_PQAH.xlsx",   logger)
-        validate_columns(it0041, [IT0041_KEY], "IKP_IT0041.xlsx", logger)
+        validate_columns(pqah,   [PQAH_KEY],   "PHA_PQAH.xlsx",   logger)
+        validate_columns(PA0041, [PA0041_KEY], "PHA_PA0041.xlsx", logger)
 
         pqah_key_col   = get_required_column_ci(pqah, PQAH_KEY)
-        it0041_key_col = get_required_column_ci(it0041, IT0041_KEY)
+        PA0041_KEY_col = get_required_column_ci(PA0041, PA0041_KEY)
 
-        long_df = _melt_date_pairs(it0041, it0041_key_col, logger)
+        long_df = _melt_date_pairs(PA0041, PA0041_KEY_col, logger)
         long_df["_pno_norm"] = normalize_id(long_df["_pno_raw"])
         long_df["date_type"] = normalize_date_type(long_df["date_type"])
 
