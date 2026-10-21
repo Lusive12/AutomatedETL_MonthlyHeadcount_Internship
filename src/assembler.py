@@ -182,16 +182,16 @@ def run(logger: logging.Logger) -> dict:
                 # Special Rule 2: Override Division to "GENERAL AFFAIR" for specific combination
                 # Entity = "APP HEADQUARTERS", Division = "HR MILL, FORESTRY & OPERATIONS", Company Name = "Pindo Deli Pulp And Paper"
                 div_col = find_column_ci(pqah, "Division")
-                comp_col = find_column_ci(pqah, "Company Name")
-                if ent_col and div_col and comp_col:
+
+                if ent_col and div_col and cocd_col:
                     ent_s = pqah[ent_col].fillna("").astype(str).str.strip().str.upper()
                     div_s = pqah[div_col].fillna("").astype(str).str.strip().str.upper()
-                    comp_s = pqah[comp_col].fillna("").astype(str).str.strip().str.upper()
+                    cocd_s = pqah[cocd_col].fillna("").astype(str).str.strip().str.upper()
 
                     mask_rule2 = (
                         (ent_s == "APP HEADQUARTERS") &
                         (div_s == "HUMAN RESOURCES") &
-                        (comp_s == "PINDO DELI PULP AND PAPER")
+                        (cocd_s == "8288")
                     )
                     pqah.loc[mask_rule2, div_col] = "GENERAL AFFAIR"
                     rule2_count = int(mask_rule2.sum())

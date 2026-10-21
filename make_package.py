@@ -13,9 +13,9 @@ def build_package():
     root = pathlib.Path(__file__).resolve().parent
     # Jika dijalankan dari folder Monthly HR Report Automation atau ETL Group
     if not (root / "dist").exists() and (root.parent / "Monthly HR Report Automation").exists():
-        root = root.parent / "PHA Monthly HR Report Automationv1.6"
+        root = root.parent / "PHA Monthly HR Report Automationv1.8"
 
-    dist_pkg = root / "dist" / "PHA_Monthly_HR_Automation_Packagev1.6"
+    dist_pkg = root / "dist" / "PHA_Monthly_HR_Automation_Package_v1.8"
 
     print("[1/6] Menyiapkan folder paket distribusi...")
     if dist_pkg.exists():
@@ -74,7 +74,7 @@ Selamat datang! Aplikasi ini mengonsolidasikan export data bulanan SAP ke dalam 
 - input/Entity, Division, Area, Function/
     -> PHA_PA9000.xlsx
 - input/General Cost Center & Cost Center Text/
-    -> PHA_PA0027_01.xlsx, PHA_PA0027_02.xlsx, PHA_CSKT.xlsx
+    -> PHA_PA0027_01.xlsx, PHA_PA0027_02.xlsx, PHA_CSKT_01.xlsx, PHA_CSKT_02.xlsx
 - input/Join Date & Year of Service/
     -> PHA_PA0041.xlsx
 - input/Position Effective Date & Current Tenure/
@@ -98,7 +98,7 @@ Selamat datang! Aplikasi ini mengonsolidasikan export data bulanan SAP ke dalam 
         shutil.copy2(word_doc, dist_pkg / "PHA_PANDUAN_OPERASIONAL_HR_AUTOMATION.docx")
 
     print("[6/6] Mengompres folder menjadi file ZIP siap kirim...")
-    zip_path = root / "dist" / "Monthly_HR_Automation_Package.zip"
+    zip_path = root / "dist" / "PHA_Monthly_HR_Automation_Package_v1.8.zip"
     if zip_path.exists():
         zip_path.unlink()
 
