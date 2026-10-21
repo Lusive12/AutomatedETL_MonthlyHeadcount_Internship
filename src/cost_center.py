@@ -97,7 +97,7 @@ def run(logger: logging.Logger) -> dict:
         cskt_01_lookup = _build_cskt_lookup(cskt_01, cskt_01_path.name, logger)
         cskt_02_lookup = _build_cskt_lookup(cskt_02, cskt_02_path.name, logger)
 
-        # Process PA0027_01 -> General Expense Cost Center (linked with CSKT_01)
+        # Process PA0027_01 -> Salary Cost Center (S4) (linked with CSKT_02)
         pno_col_01 = get_required_column_ci(pa0027_01, "Personnel Number")
         cc_col_01  = get_required_column_ci(pa0027_01, "Cost Center")
 
@@ -106,11 +106,11 @@ def run(logger: logging.Logger) -> dict:
         sub1 = pd.DataFrame({
             "_pno_norm": pno_norm_01,
             "Personnel Number": pa0027_01[pno_col_01],
-            "General Expense Cost Center": pa0027_01[cc_col_01],
-            "General Expense Cost Center Desc": cc_norm_01.map(cskt_01_lookup),
+            "Salary Cost Center (S4)": pa0027_01[cc_col_01],
+            "Salary Cost Center Desc (S4)": cc_norm_01.map(cskt_01_lookup),
         }).drop_duplicates(subset=["_pno_norm"])
 
-        # Process PA0027_02 -> Salary Cost Center (S4) (linked with CSKT_02)
+        # Process PA0027_02 -> General Expense Cost Center (linked with CSKT_01)
         pno_col_02 = get_required_column_ci(pa0027_02, "Personnel Number")
         cc_col_02  = get_required_column_ci(pa0027_02, "Cost Center")
 
@@ -118,8 +118,8 @@ def run(logger: logging.Logger) -> dict:
         cc_norm_02  = normalize_id(pa0027_02[cc_col_02])
         sub2 = pd.DataFrame({
             "_pno_norm": pno_norm_02,
-            "Salary Cost Center (S4)": pa0027_02[cc_col_02],
-            "Salary Cost Center Desc (S4)": cc_norm_02.map(cskt_02_lookup),
+            "General Expense Cost Center": pa0027_02[cc_col_02],
+            "General Expense Cost Center Desc": cc_norm_02.map(cskt_02_lookup),
         }).drop_duplicates(subset=["_pno_norm"])
 
         # Merge both cost center frames
