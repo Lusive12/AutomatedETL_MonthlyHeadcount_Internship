@@ -6,13 +6,25 @@
 
 ## Files
 
-### `IKP_IT0027.xlsx` — Cost Center Assignments (SAP IT0027)
-- **Export source:** SAP Infotype IT0027
+### `PHA_PA0027_01.xlsx` — Salary Cost Center Assignments (SAP IT0027)
+- **Export source:** SAP Infotype PA0027
 - **Key column:** `Personnel number`
-- **Contains:** Multiple cost center columns per record (salary + general expense split)
-- An employee may have multiple IT0027 records; the module picks the **most valid** one based on date ranges.
+- **Contains:** Multiple cost center columns per record (salary split)
+- An employee may have multiple PA0027 records; the module picks the **most valid** one based on date ranges.
 
-### `IKP_CSKT.xlsx` — Cost Center Master Lookup
+### `PHA_PA0027_02.xlsx` — General Expense Cost Center Assignments (SAP IT0027)
+- **Export source:** SAP Infotype PA0027
+- **Key column:** `Personnel number`
+- **Contains:** Multiple cost center columns per record (general expense split)
+- An employee may have multiple PA0027 records; the module picks the **most valid** one based on date ranges.
+
+### `PHA_CSKT_01.xlsx` — Salary Cost Center Master Lookup
+- **Role:** Maps cost center codes to their descriptions
+- **Key column:** `Cost Center` (or equivalent)
+- **Value column:** Cost Center description text
+- **Selection rule:** For employees with multiple date-range records, the entry with the **maximum Valid To date** is selected.
+
+### `PHA_CSKT_02.xlsx` — General Expense Cost Center Master Lookup
 - **Role:** Maps cost center codes to their descriptions
 - **Key column:** `Cost Center` (or equivalent)
 - **Value column:** Cost Center description text

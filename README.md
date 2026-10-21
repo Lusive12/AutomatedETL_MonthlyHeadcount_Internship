@@ -1,172 +1,190 @@
-# 📊 Monthly HR Report Automation Suite
+# 📊 PHA Monthly HR Report Automation Suite
 
-> **Automated ETL pipeline** that transforms raw SAP exports into a unified, structured HR Topic Report — in seconds, not hours.
+> **End-to-end automated ETL pipeline** for monthly HR headcount, demographics, contracts, cost centers, and organizational reporting.
+> Replaces error-prone manual Excel VLOOKUPs and joins with a unified, audited Python workflow.
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://python.org)
-[![pandas](https://img.shields.io/badge/pandas-2.x-150458?logo=pandas)](https://pandas.pydata.org)
-[![License: Internal](https://img.shields.io/badge/License-Internal%20Use-lightgrey)]()
-
----
-
-## 🚀 Quick Start (HR Users)
-
-> No coding experience required. Just follow these 3 steps.
-
-**Step 1 — Place your SAP export files** into the correct subfolders inside `input/`
-_(See the [Input Folder Guide](#-input-folder-architecture) below)_
-
-**Step 2 — Double-click `RUN_ME.bat`**
-The pipeline runs automatically in the background.
-
-**Step 3 — Collect your report** from the `output/` folder
-Look for `FINAL_HR_Topic_Report_YYYYMMDD.xlsx`
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-Proprietary-red.svg)]()
+[![Status](https://img.shields.io/badge/Status-Production%20Ready%20v1.5-brightgreen.svg)]()
 
 ---
 
-## 📁 Project Structure
+## 📋 Table of Contents
+
+- [Overview](#-overview)
+- [System Architecture](#-system-architecture)
+- [Folder & File Structure](#-folder--file-structure)
+- [Pipeline Modules Breakdown](#-pipeline-modules-breakdown)
+- [Module Settings & Toggle](#-module-settings--toggle-configsettingsjson)
+- [Output Column Reference (46 Columns)](#-output-column-reference-all-46-columns)
+- [Quick Start Guide](#-quick-start-guide)
+- [Distribution Packaging (v1.5)](#-distribution-packaging-v15)
+- [Key Design Principles & Data Integrity](#-key-design-principles--data-integrity)
+- [Troubleshooting & FAQ](#-troubleshooting--faq)
+
+---
+
+## 🎯 Overview
+
+The **PHA Monthly HR Report Automation Suite** consolidates disparate SAP HR infotypes and master files into a single, standardized, 46-column executive HR master report (`FINAL_HR_Topic_Report_YYYYMMDD.xlsx`).
+
+### ✨ Core Capabilities:
+- **Dual Cost Center Mapping:** Independent mapping of Salary Cost Center (`PHA_PA0027_01` + `PHA_CSKT_01`) and General Expense Cost Center (`PHA_PA0027_02` + `PHA_CSKT_02`).
+- **Smart Contract Sorting:** Deduplicates multiple historical contract entries (`PHA_PA0016`), sorting descending by `Valid Until` date so the most recent active contract is always captured.
+- **Hierarchy & Highest Qualification:** Automatically ranks education records (`Order_PHA_PA0022`) to filter out training entries and select the true highest degree attained.
+- **Family Count & Direct Supervisor:** Counts family members (`PHA_PA0021`) and links direct supervisor NIK and Name (`PHA_Direct_Spv`).
+- **Normalized Date Formatting:** Enforces unified `DD/MM/YYYY` date representation across Join Dates, Birth Dates, Contract End Dates, and Position Effective Dates.
+- **Automated Data Integrity Audit:** Runs post-merge insight validation (`insight_validator.py`) to detect unmatched cost centers, missing supervisor linkages, or invalid dates, exporting an audit log.
+
+---
+
+## 🏗 System Architecture
 
 ```
-Monthly HR Report Automation/
-│
-├── 📂 input/                          ← Place all SAP export files here
-│   ├── Shared/                        ← Master files used across all modules
+                                  [INPUT DATA]
+       +-------------------------------+-------------------------------+
+       |                               |                               |
+  [Domain Inputs]             [Infotypes & Lookups]             [Shared Files]
+  • Contract Type             • PA0016 / PA0022 / PA0027        • PHA_PQAH (Base)
+  • Education / Branch        • PA0041 / HRP1001 / PA9000       • PHA_Headings (Template)
+  • General Cost Centers      • CSKT_01 / CSKT_02               • PHA_Direct_Spv
+  • Position / Tenure         • Branch of Study Lookup          • PHA_PA0021 (Family)
+                                                                • PHA_PA0105 (Email)
+                                                                • PHA_Job_Layer
+                                       │
+                                       ▼
+                              [ETL MODULE PIPELINE]
+  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+  │   Module 1   │    │   Module 2   │    │   Module 3   │    │   Module 4   │
+  │ ContractType │    │  Education   │    │EntityDivision│    │  CostCenter  │
+  │ PA0016+Lookup│    │ Highest Order│    │PA9000 OrgMap │    │PA0027+CSKT01 │
+  │ Date Normal. │    │ + Branch Text│    │ Area/Division│    │PA0027+CSKT02 │
+  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘    └──────┬───────┘
+         │                   │                   │                   │
+         └──────────────┐    │    ┌──────────────┘                   │
+                        ▼    ▼    ▼                                  │
+  ┌────────────────────────────────────────────────────────┐         │
+  │       [Module 5: Join Date] & [Module 6: Pos. Tenure]  │◄────────┘
+  │       PA0041 (Type 01) + YoS | HRP1001 + Tenure Calc   │
+  └───────────────────────────┬────────────────────────────┘
+                              │
+                              ▼
+                     [FINAL ASSEMBLER]
+    • Merges all 6 intermediate outputs to Base PQAH (LEFT JOIN)
+    • Integrates Shared files: Direct Spv, Email, Family, Job Layer
+    • Orders & standardizes output to exact 46 columns
+    • Date formatting to DD/MM/YYYY
+    • Generates Data Integrity Insight Report
+                              │
+                              ▼
+                 [FINAL_HR_Topic_Report.xlsx]
+                 + 00_processing_summary.xlsx
+```
+
+---
+
+## 📁 Folder & File Structure
+
+```
+PHA Monthly HR Report Automation/
+├── config/
+│   └── settings.json                    # Module toggles (enable/disable modules)
+├── input/
 │   ├── Contract Type & Contract End Data/
+│   │   ├── Contract Type_PHA_PA0016.xlsx # Lookup: Contract Type code to description
+│   │   └── PHA_PA0016.xlsx              # Employee contract records & Valid Until
 │   ├── Education, Institute, Branch of Study/
+│   │   ├── Order_PHA_PA0022.xlsx        # Hierarchy ranking for highest qualification
+│   │   ├── PHA_Branch of Study.xlsx     # Lookup: Branch code to text
+│   │   └── PHA_PA0022.xlsx              # Employee education records
 │   ├── Entity, Division, Area, Function/
+│   │   └── PHA_PA9000.xlsx              # Custom organizational mapping table
 │   ├── General Cost Center & Cost Center Text/
+│   │   ├── PHA_PA0027_01.xlsx           # Salary Cost Center assignments
+│   │   ├── PHA_CSKT_01.xlsx             # Salary Cost Center descriptions
+│   │   ├── PHA_PA0027_02.xlsx           # General Expense Cost Center assignments
+│   │   └── PHA_CSKT_02.xlsx             # General Expense Cost Center descriptions
 │   ├── Join Date & Year of Service/
-│   └── Position Effective Date & Current Tenure/
-│
-├── 📂 output/                         ← All outputs land here
-│   ├── FINAL_HR_Topic_Report_YYYYMMDD.xlsx   ← ✅ Your final report
-│   ├── 00_processing_summary.xlsx            ← Audit summary
-│   └── intermediate/                         ← Per-module enriched outputs
-│
-├── 📂 src/                            ← Pipeline source code (Python)
-│   ├── assembler.py                   ← Final report builder (45-column merge)
-│   ├── common.py                      ← Shared utilities & column helpers
-│   ├── contract_type.py               ← Module 1: Contract Type & End Date
-│   ├── education.py                   ← Module 2: Education, Institute, Branch
-│   ├── entity_division.py             ← Module 3: Entity, Division, Area, Function
-│   ├── cost_center.py                 ← Module 4: General Cost Center
-│   ├── join_date.py                   ← Module 5: Join Date & Years of Service
-│   ├── position_tenure.py             ← Module 6: Position Effective Date & Tenure
-│   ├── validator.py                   ← Row-count & column guards
-│   ├── excel_export.py                ← Safe Excel writer (detects open files)
-│   ├── logger.py                      ← Timestamped logging
-│   └── summary.py                     ← Audit summary writer
-│
-├── 📂 config/
-│   └── settings.json                  ← Toggle modules on/off
-│
-├── 📂 logs/                           ← One log file per run (timestamped)
-├── run.py                             ← Main pipeline entry point
-├── RUN_ME.bat                         ← One-click launcher for HR users
-└── requirements.txt                   ← Python dependencies
+│   │   └── PHA_PA0041.xlsx              # Date specifications (Date Type '01' = Join Date)
+│   ├── Position Effective Date & Current Tenure/
+│   │   └── PHA_HRP1001.xlsx             # Position relationship dates
+│   └── Shared/
+│       ├── PHA_PQAH.xlsx                # Primary Master Data source (Base population)
+│       ├── PHA_Headings.xlsx            # Standard 46-column output header template
+│       ├── PHA_Direct_Spv.xlsx          # Superior NIK & Superior Name mapping
+│       ├── PHA_Job_Layer.xlsx           # Job ID to Layer hierarchy mapping
+│       ├── PHA_PA0021.xlsx              # Family member records (for headcount count)
+│       └── PHA_PA0105.xlsx              # Employee communication / corporate emails
+├── output/
+│   ├── intermediate/                    # Intermediate enriched Excel outputs
+│   ├── 00_processing_summary.xlsx       # Status summary of all pipeline stages
+│   └── FINAL_HR_Topic_Report_*.xlsx     # Final assembled master report (46 columns)
+├── logs/                                # Timestamped run logs & insight audit files
+├── src/
+│   ├── __init__.py
+│   ├── assembler.py                     # Final merger, mapping, and column arranger
+│   ├── common.py                        # Shared normalization utilities & date parsers
+│   ├── contract_type.py                 # Module 1: Contract type description & dates
+│   ├── cost_center.py                   # Module 4: Dual PA0027 + CSKT merger
+│   ├── education.py                     # Module 2: Highest degree & branch lookup
+│   ├── entity_division.py               # Module 3: Entity, Division, Area, Function
+│   ├── excel_export.py                  # Safe Excel writer with lock detection
+│   ├── insight_validator.py             # Data integrity auditor and discrepancy tracker
+│   ├── join_date.py                     # Module 5: Join Date & Years of Service
+│   ├── logger.py                        # Logging configuration
+│   ├── position_tenure.py               # Module 6: Position effective date & tenure
+│   ├── summary.py                       # Summary table exporter
+│   └── validator.py                     # Schema, column, and row-count integrity checks
+├── make_package.py                      # Standalone distribution packager (v1.5)
+├── requirements.txt                     # Python package dependencies
+├── run.py                               # CLI entry point to execute the pipeline
+└── RUN_ME.bat                           # 1-click execution batch script for end-users
 ```
 
 ---
 
-## 📥 Input Folder Architecture
+## ⚙️ Pipeline Modules Breakdown
 
-Each subfolder maps to one pipeline module. Place the **exact files** listed below in each folder.
+### 🔹 Module 1: Contract Type & End Date (`src/contract_type.py`)
+- **Inputs:** `PHA_PA0016.xlsx`, `Contract Type_PHA_PA0016.xlsx`
+- **Output:** `output/intermediate/PHA_PA0016_With_ContractType_Description.xlsx`
+- **Business Logic:** Zero-pads contract type codes (`"2"` ➔ `"02"`) to match lookup table keys. Normalizes `Valid Until` dates to uniform `DD/MM/YYYY` format. In the assembler, rows are sorted descending by date to guarantee the most recent active contract is picked.
 
-> ⚠️ **Do not rename the files.** The pipeline locates files by their exact names (case-insensitive).
+### 🔹 Module 2: Education & Branch (`src/education.py`)
+- **Inputs:** `PHA_PA0022.xlsx`, `Order_PHA_PA0022.xlsx`, `PHA_Branch of Study.xlsx`
+- **Output:** `output/intermediate/PHA_PA0022_HighestOrder_IgnoreTraining_WithBranchText.xlsx`
+- **Business Logic:** Filters out non-degree training records, ranks education entries by priority order, picks the top qualification per employee, and joins branch text descriptions.
 
-```
-input/
-│
-├── Shared/                             ← Used by ALL modules
-│   ├── IKP_PQAH.xlsx                  ← Master employee list (primary key: Personnel No.)
-│   ├── IKP_Headings.xlsx              ← Final report template (defines 45-column layout)
-│   ├── IKP_Direct_Spv.xlsx            ← Direct supervisor lookup (Superior NIK & Name)
-│   ├── IKP_PA0105.xlsx                ← Employee email addresses
-│   └── IKP_Job_Layer.xlsx             ← Job layer classification
-│
-├── Contract Type & Contract End Data/
-│   ├── IKP_PA0016.xlsx                ← SAP PA0016 contract records
-│   └── Contract Type_IKP_IT0016.xlsx  ← Contract type code → description lookup
-│
-├── Education, Institute, Branch of Study/
-│   ├── IKP_IT0022.xlsx                ← SAP IT0022 education records
-│   ├── Order_IKP_IT0022.xlsx          ← Education ranking (Key → Order → Text)
-│   └── IKP_Branch of Study.xlsx       ← Branch of study code → text lookup
-│
-├── Entity, Division, Area, Function/
-│   ├── ZHR_MAP_ENTITY.xlsx            ← Entity / Area / Function mapping
-│   └── ZHR_MASTER_DIVISION.xlsx       ← Division master lookup
-│
-├── General Cost Center & Cost Center Text/
-│   ├── IKP_IT0027.xlsx                ← SAP IT0027 cost center assignment records
-│   └── IKP_CSKT.xlsx                  ← Cost center code → description lookup
-│
-├── Join Date & Year of Service/
-│   └── IKP_PA0041.xlsx                ← SAP PA0041 date records (filtered: Date Type = 01)
-│
-└── Position Effective Date & Current Tenure/
-    └── IKP_HRP1001.xlsx               ← SAP HRP1001 position history (Object ID & Start Date)
-```
+### 🔹 Module 3: Entity, Division, Area, Function (`src/entity_division.py`)
+- **Inputs:** `PHA_PA9000.xlsx`, `PHA_PQAH.xlsx`
+- **Output:** `output/intermediate/PHA_PQAH_With_Entity_DivisionDesc_Area_Function.xlsx`
+- **Business Logic:** Maps organizational structure (Entity, Division, Area, Function) onto base employee records.
+
+### 🔹 Module 4: General & Salary Cost Center (`src/cost_center.py`)
+- **Inputs:** `PHA_PA0027_01.xlsx` + `PHA_CSKT_01.xlsx` (Salary), `PHA_PA0027_02.xlsx` + `PHA_CSKT_02.xlsx` (General Expense)
+- **Output:** `output/intermediate/PHA_PA0027_Enriched_CostCenterDesc.xlsx`
+- **Business Logic:** Standardizes 10-character cost center IDs and enriches both General Expense and Salary cost centers with their respective official descriptions.
+
+### 🔹 Module 5: Join Date & Years of Service (`src/join_date.py`)
+- **Inputs:** `PHA_PA0041.xlsx`, `PHA_PQAH.xlsx`
+- **Output:** `output/intermediate/PQAH_Enriched_JoinDate_YoS.xlsx`
+- **Business Logic:** Scans date type pairs for Date Type `'01'` (Join Date) and computes total Years of Service.
+
+### 🔹 Module 6: Position Effective Date & Tenure (`src/position_tenure.py`)
+- **Inputs:** `PHA_HRP1001.xlsx`, `PHA_PQAH.xlsx`
+- **Output:** `output/intermediate/PQAH_Enriched_PositionTenure.xlsx`
+- **Business Logic:** Extracts position start dates and computes current tenure in position.
+
+### 🔹 Final Step: Topic Report Assembler (`src/assembler.py`)
+- **Inputs:** `PHA_PQAH.xlsx`, `PHA_Headings.xlsx`, all intermediate outputs + Shared files (`PHA_Direct_Spv.xlsx`, `PHA_Job_Layer.xlsx`, `PHA_PA0021.xlsx`, `PHA_PA0105.xlsx`)
+- **Output:** `output/FINAL_HR_Topic_Report_YYYYMMDD.xlsx`
+- **Business Logic:** Performs left-joins of all domain modules against `_pno_norm` (normalized NIK), counts family members, normalizes all date columns, applies heading ordering, and executes data integrity checks.
 
 ---
 
-## 📤 Output Files
+## 🎛 Module Settings & Toggle (`config/settings.json`)
 
-| File | Location | Description |
-|------|----------|-------------|
-| `FINAL_HR_Topic_Report_YYYYMMDD.xlsx` | `output/` | **Main deliverable.** 45-column report matching the `IKP_Headings.xlsx` template. One row per employee. |
-| `00_processing_summary.xlsx` | `output/` | Audit table: module status, row counts, matched/unmatched per module. |
-| `IKP_PA0016_With_ContractType_Description.xlsx` | `output/intermediate/` | PA0016 enriched with Contract Type Description. |
-| `IKP_IT0022_HighestOrder_IgnoreTraining_WithBranchText.xlsx` | `output/intermediate/` | Highest non-training education per employee + Branch of Study Text. |
-| `IKP_PQAH_With_Entity_DivisionDesc_Area_Function.xlsx` | `output/intermediate/` | PQAH enriched with Entity, Division, Area, and Function. |
-| `IT0027_Enriched_CostCenterDesc.xlsx` | `output/intermediate/` | IT0027 enriched with cost center descriptions. |
-| `PQAH_Enriched_JoinDate_YoS.xlsx` | `output/intermediate/` | PQAH with Join Date and Years of Service. |
-| `PQAH_Enriched_PositionTenure.xlsx` | `output/intermediate/` | PQAH with Position Effective Date and Current Tenure. |
-| `logs/YYYYMMDD_HHMMSS.log` | `logs/` | Full timestamped execution log for every run. |
-
----
-
-## ⚙️ Pipeline Architecture
-
-The pipeline runs **6 independent enrichment modules** in sequence, then a final **Assembler** step that merges all results into the 45-column Topic Report.
-
-```
-                    ┌──────────────────────┐
-                    │  run.py  (Orchestrator)│
-                    └──────────┬───────────┘
-                               │
-            ┌──────────────────▼──────────────────┐
-            │          IKP_PQAH.xlsx               │
-            │     (Master employee dataset)         │
-            └──────────────────┬──────────────────┘
-                               │
-          ┌────────────────────┼────────────────────┐
-          ▼                    ▼                     ▼
-   [Module 1]            [Module 2]            [Module 3]
- Contract Type          Education             Entity/Division
- PA0016 + IT0016        IT0022 + Order        ZHR_MAP_ENTITY
- lookup → Desc          + Branch lookup       + MASTER_DIVISION
-
-          ▼                    ▼                     ▼
-   [Module 4]            [Module 5]            [Module 6]
-  Cost Center            Join Date            Pos. Tenure
-  IT0027 + CSKT          PA0041               HRP1001
-  lookup → Desc          Date Type 01         Object ID match
-
-          └────────────────────┬────────────────────┘
-                               ▼
-                    ┌──────────────────────┐
-                    │   ASSEMBLER           │
-                    │ Merges all 6 outputs  │
-                    │ Maps → 45 columns     │
-                    │ FINAL_HR_Topic_Report │
-                    └──────────────────────┘
-```
-
----
-
-## 🔧 Module Toggle (`config/settings.json`)
-
-Selectively enable or disable individual modules without changing any code:
+You can selectively enable or disable individual pipeline modules:
 
 ```json
 {
@@ -182,138 +200,128 @@ Selectively enable or disable individual modules without changing any code:
 }
 ```
 
-> 💡 Set any module to `false` to skip it — useful when a specific input file is not yet ready or when debugging a single module.
+---
+
+## 📊 Output Column Reference (All 46 Columns)
+
+| # | Target Column Name | Primary Source / Extraction Logic |
+|:---:|:---|:---|
+| 1 | **Entity** | `PHA_PA9000.xlsx` via `PHA_PQAH.xlsx` |
+| 2 | **Division** | `PHA_PA9000.xlsx` |
+| 3 | **Area** | `PHA_PA9000.xlsx` |
+| 4 | **Function** | `PHA_PA9000.xlsx` |
+| 5 | **Personnel No.** | `PHA_PQAH.xlsx` (Employee NIK) |
+| 6 | **Personnel Number** | `PHA_PQAH.xlsx` (Employee Full Name) |
+| 7 | **Lvl** | `PHA_PQAH.xlsx` (Employee Level) |
+| 8 | **CoCd** | `PHA_PQAH.xlsx` (Company Code) |
+| 9 | **Company Name** | `PHA_PQAH.xlsx` |
+| 10 | **ESgrp** | `PHA_PQAH.xlsx` (Employee Subgroup Code) |
+| 11 | **Name of EE Subgroup** | `PHA_PQAH.xlsx` |
+| 12 | **PArea** | `PHA_PQAH.xlsx` (Personnel Area Code) |
+| 13 | **Personnel Area Text** | `PHA_PQAH.xlsx` |
+| 14 | **Subarea** | `PHA_PQAH.xlsx` (Personnel Subarea Code) |
+| 15 | **P. SubArea Text** | `PHA_PQAH.xlsx` |
+| 16 | **Position** | `PHA_PQAH.xlsx` (Position ID) |
+| 17 | **Position Name** | `PHA_PQAH.xlsx` |
+| 18 | **Org. Unit** | `PHA_PQAH.xlsx` (Organizational Unit ID) |
+| 19 | **Name of Organizational Unit** | `PHA_PQAH.xlsx` |
+| 20 | **Join Date** | `PHA_PA0041.xlsx` (Date Type `'01'`) |
+| 21 | **Year of Service** | Calculated: Join Date ➔ Today (Years) |
+| 22 | **Job** | `PHA_PQAH.xlsx` (Job Code) |
+| 23 | **Job Title** | `PHA_PQAH.xlsx` |
+| 24 | **Gender** | `PHA_PQAH.xlsx` |
+| 25 | **Birth Date** | `PHA_PQAH.xlsx` |
+| 26 | **Age** | Calculated: Birth Date ➔ Today (Years) |
+| 27 | **Nationality** | `PHA_PQAH.xlsx` |
+| 28 | **Birthplace** | `PHA_PQAH.xlsx` |
+| 29 | **Education** | `PHA_PA0022.xlsx` + `Order_PHA_PA0022.xlsx` (Highest degree) |
+| 30 | **Institute** | `PHA_PA0022.xlsx` |
+| 31 | **Branch Study** | `PHA_PA0022.xlsx` + `PHA_Branch of Study.xlsx` |
+| 32 | **Religion** | `PHA_PQAH.xlsx` |
+| 33 | **Number of Family Members** | `PHA_PA0021.xlsx` (Count of records per employee) |
+| 34 | **Marital Status** | `PHA_PQAH.xlsx` |
+| 35 | **Layer** | `PHA_Job_Layer.xlsx` |
+| 36 | **Superior NIK** | `PHA_Direct_Spv.xlsx` (`Personnel` ➔ `D.Superior`) |
+| 37 | **Superior Name** | `PHA_Direct_Spv.xlsx` (`Direct Sup`) |
+| 38 | **Salary Cost Center (S4)** | `PHA_PA0027_01.xlsx` |
+| 39 | **Salary Cost Center Desc (S4)** | `PHA_CSKT_01.xlsx` |
+| 40 | **General Expense Cost Center** | `PHA_PA0027_02.xlsx` |
+| 41 | **General Expense Cost Center Desc** | `PHA_CSKT_02.xlsx` |
+| 42 | **Email** | `PHA_PA0105.xlsx` (Corporate Email) |
+| 43 | **Contract Type** | `PHA_PA0016.xlsx` + `Contract Type_PHA_PA0016.xlsx` |
+| 44 | **Contract End Date** | `PHA_PA0016.xlsx` (Sorted latest `Valid Until`) |
+| 45 | **Position Effective Date** | `PHA_HRP1001.xlsx` |
+| 46 | **Current Tenure** | Calculated: Position Effective Date ➔ Today (Years) |
 
 ---
 
-## 🛠️ Developer Setup
+## 🚀 Quick Start Guide
 
-```bash
-# 1. Clone the repository
+### Prerequisites
+- Python 3.10+
+- Microsoft Excel installed (optional, for viewing reports)
+
+### 1. Installation
+```powershell
+# Clone the repository
 git clone https://github.com/Lusive12/ETL_MergeExcelHeadings_Internship.git
-cd ETL_MergeExcelHeadings_Internship
+cd "PHA Monthly HR Report Automation"
 
-# 2. Create and activate virtual environment
+# Create and activate virtual environment
 python -m venv .venv
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # macOS / Linux
+.venv\Scriptsctivate
 
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Run the pipeline
-python run.py
-```
-
----
-
-## 🔑 Key Design Principles
-
-| Principle | Implementation |
-|-----------|----------------|
-| **Zero aliases** | Column lookups use exact case-insensitive matching via `find_column_ci()`. `"Personnel No."` and `"Personnel Number"` are always treated as **distinct** columns |
-| **Key normalization** | Numeric codes are zero-padded before joining: `"2"` → `"02"` (2-digit), `"40"` → `"00040"` (5-digit) to prevent silent lookup mismatches |
-| **Row preservation** | Every module validates output row count == input row count — no accidental drops allowed |
-| **File lock protection** | `excel_export.py` detects open Excel files and raises a descriptive error instead of corrupting data |
-| **Modular & toggleable** | Each domain is a fully isolated module; `config/settings.json` controls which modules run |
-| **Audit trail** | Every run produces a timestamped log and a processing summary Excel file |
-
----
-
-## 📊 Output Column Reference (All 45 Columns)
-
-| # | Column | Primary Source |
-|---|--------|----------------|
-| 1 | Entity | `ZHR_MAP_ENTITY.xlsx` |
-| 2 | Division | `ZHR_MASTER_DIVISION.xlsx` |
-| 3 | Area | `ZHR_MAP_ENTITY.xlsx` |
-| 4 | Function | `ZHR_MAP_ENTITY.xlsx` |
-| 5 | Personnel No. | `IKP_PQAH.xlsx` |
-| 6 | Personnel Number | `IKP_PQAH.xlsx` |
-| 7 | Lvl | `IKP_PQAH.xlsx` |
-| 8 | CoCd | `IKP_PQAH.xlsx` |
-| 9 | Company Name | `IKP_PQAH.xlsx` |
-| 10 | ESgrp | `IKP_PQAH.xlsx` |
-| 11 | Name of EE Subgroup | `IKP_PQAH.xlsx` |
-| 12 | PArea | `IKP_PQAH.xlsx` |
-| 13 | Personnel Area Text | `IKP_PQAH.xlsx` |
-| 14 | Subarea | `IKP_PQAH.xlsx` |
-| 15 | P. SubArea Text | `IKP_PQAH.xlsx` |
-| 16 | Position | `IKP_PQAH.xlsx` |
-| 17 | Position Name | `IKP_PQAH.xlsx` |
-| 18 | Org. Unit | `IKP_PQAH.xlsx` |
-| 19 | Name of Organizational Unit | `IKP_PQAH.xlsx` |
-| 20 | Join Date | `IKP_PA0041.xlsx` (Date Type 01) |
-| 21 | Year of Service | Calculated from Join Date → today |
-| 22 | Job | `IKP_PQAH.xlsx` |
-| 23 | Job Title | `IKP_PQAH.xlsx` |
-| 24 | Gender | `IKP_PQAH.xlsx` |
-| 25 | Birth Date | `IKP_PQAH.xlsx` |
-| 26 | Age | Calculated from Birth Date → today |
-| 27 | Nationality | `IKP_PQAH.xlsx` |
-| 28 | Birthplace | `IKP_PQAH.xlsx` |
-| 29 | Education | `IKP_IT0022.xlsx` + `Order_IKP_IT0022.xlsx` (highest non-training qualification) |
-| 30 | Institute | `IKP_IT0022.xlsx` (Institute/location column) |
-| 31 | Branch Study | `IKP_IT0022.xlsx` + `IKP_Branch of Study.xlsx` (code lookup) |
-| 32 | Religion | `IKP_PQAH.xlsx` |
-| 33 | Marital Status | `IKP_PQAH.xlsx` |
-| 34 | Layer | `IKP_Job_Layer.xlsx` |
-| 35 | Superior NIK | `IKP_Direct_Spv.xlsx` |
-| 36 | Superior Name | `IKP_Direct_Spv.xlsx` |
-| 37 | Salary Cost Center (S4) | `IKP_IT0027.xlsx` |
-| 38 | Salary Cost Center Desc (S4) | `IKP_CSKT.xlsx` |
-| 39 | General Expense Cost Center | `IKP_IT0027.xlsx` |
-| 40 | General Expense Cost Center Desc | `IKP_CSKT.xlsx` |
-| 41 | Email | `IKP_PA0105.xlsx` |
-| 42 | Contract Type | `IKP_PA0016.xlsx` + `Contract Type_IKP_IT0016.xlsx` |
-| 43 | Contract End Date | `IKP_PA0016.xlsx` (Valid Until) |
-| 44 | Position Effective Date | `IKP_HRP1001.xlsx` |
-| 45 | Current Tenure | Calculated from Position Effective Date → today |
-
----
-
-## 🔭 Future Development Suggestions
-
-### 📌 For HR / Business Users
-- **📅 Scheduled automation** — Run automatically every 1st of the month via Windows Task Scheduler so reports are always ready without manual steps.
-- **📧 Email delivery** — Auto-send the final report to a distribution list immediately after the pipeline completes.
-- **📋 Validation dashboard** — A simple web or Excel dashboard showing matched/unmatched statistics per month, flagging anomalies (e.g., employees with no education record or contract type).
-- **🌐 Multi-language support** — Add Indonesian-language column headers and error messages.
-
-### 💻 For Developers
-- **🐍 CLI flags** — Add `argparse` so specific modules can be toggled from the command line: `python run.py --only education cost_center`.
-- **🧪 Unit tests** — Add a `pytest` test suite for each module using small fixture Excel files to catch regressions automatically on every commit.
-- **🗄️ Database support** — Replace Excel inputs with direct SAP HANA / PostgreSQL queries via `pyodbc` to eliminate the manual export step entirely.
-- **📦 Docker containerization** — Package the pipeline into a Docker image so it runs identically on any machine without environment setup.
-- **📈 Incremental processing** — Detect changed rows and only process deltas each month (critical as headcount grows beyond thousands of employees).
-- **🔗 REST API** — Expose the pipeline as a FastAPI endpoint so other systems (HRIS, BI tools) can trigger it programmatically via HTTP.
-- **📊 Power BI / Tableau connector** — Output directly to a live database table instead of Excel, enabling real-time HR dashboards without manual refresh.
-- **🔔 Slack / Teams notification** — Post a run summary card to a team channel automatically when the pipeline completes or fails.
-- **🔐 Column schema versioning** — Lock the 45-column schema in a JSON schema file so accidental heading changes in `IKP_Headings.xlsx` are detected and flagged before the run starts.
-
----
-
-## 📋 Requirements
-
-```
-pandas>=2.0
-openpyxl>=3.1
-```
-
-Install with:
-```bash
+# Install dependencies
 pip install -r requirements.txt
 ```
 
+### 2. Prepare Input Data
+Place the monthly SAP export files into their respective subfolders in `input/` according to the structure above.
+
+### 3. Run the Automation
+- **Option A (One-Click for Users):** Double-click `RUN_ME.bat`.
+- **Option B (Command Line):**
+  ```powershell
+  python run.py
+  ```
+
+### 4. Review Results
+- The final topic report will be saved at: `output/FINAL_HR_Topic_Report_YYYYMMDD.xlsx`.
+- The execution summary is recorded at: `output/00_processing_summary.xlsx`.
+- Detailed logs and data integrity insight reports are saved in `logs/`.
+
 ---
 
-## 👥 Contributors
+## 📦 Distribution Packaging (v1.5)
 
-| Role | Contributor |
-|------|-------------|
-| ETL Pipeline — Topic Report | [@Lusive12](https://github.com/Lusive12) |
-| Monthly Data Module | [@andromedaar](https://github.com/andromedaar) |
+To generate a standalone distribution package for end users without requiring Git:
+
+```powershell
+python make_package.py
+```
+
+This compiles a clean, production-ready package under:
+`dist/PHA_Monthly_HR_Automation_Packagev1.5/`
 
 ---
 
-*Monthly HR Report Automation Suite — built for speed, accuracy, and zero manual copy-paste.*
+## 🛡 Key Design Principles & Data Integrity
+
+- **Strict Key Normalization:** All join keys (`_pno_norm`, Cost Centers, Contract Type Codes) are sanitized, stripping whitespace, removing floating-point artifacts (`.0`), and zero-padded where appropriate.
+- **Row Count Preservation:** Merges enforce left-joins to guarantee that no base employees from `PHA_PQAH.xlsx` are dropped.
+- **Excel Lock Protection:** `excel_export.py` checks file access prior to writing, warning users clearly if an output file is currently open in Excel.
+- **Automated Anomaly Audit:** `insight_validator.py` flags missing direct supervisors, unmatched cost centers, and unpopulated fields for review.
+
+---
+
+## 💬 Troubleshooting & FAQ
+
+| Issue | Cause | Solution |
+|---|---|---|
+| **"Cannot overwrite... file is open in Excel"** | The output Excel report is open in Microsoft Excel. | Close Excel and re-run `run.py` or `RUN_ME.bat`. |
+| **"File is not a zip file"** | The input file is corrupt or saved in an older non-standard `.xls` or HTML format. | Re-export the file as standard `.xlsx` from SAP. |
+| **"Missing required column"** | Input file headers do not match the expected column naming. | Check the input file headers against the specification in this README. |
+
+---
+
+*PHA Monthly HR Report Automation Suite — Engineered for high precision, data integrity, and complete reporting autonomy.*
