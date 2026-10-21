@@ -93,7 +93,7 @@ def run(logger: logging.Logger) -> dict:
             "PArea": ["PArea", "Personnel Area"],
             "Personnel Area Text": ["Personnel Area Text"],
             "Subarea": ["Subarea", "Personnel Subarea"],
-            "P. SubArea Text": ["P. SubArea Text", "Personnel Subarea Text"],
+            "P.SubArea Text": ["P. SubArea Text", "Personnel Subarea Text", "P.SubArea Text"],
             "Position": ["Position", "Position ID"],
             "Position Name": ["Position Name", "Position Text"],
             "Org. Unit": ["Org. Unit", "Organizational Unit"],
@@ -189,7 +189,7 @@ def run(logger: logging.Logger) -> dict:
                     cocd_s = pqah[cocd_col].fillna("").astype(str).str.strip().str.upper()
 
                     mask_rule2 = (
-                        (ent_s == "APP HEADQUARTERS") &
+                        (ent_s == "APP HEADQUARTER") &
                         (div_s == "HUMAN RESOURCES") &
                         (cocd_s == "8288")
                     )
