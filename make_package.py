@@ -13,9 +13,9 @@ def build_package():
     root = pathlib.Path(__file__).resolve().parent
     # Jika dijalankan dari folder Monthly HR Report Automation atau ETL Group
     if not (root / "dist").exists() and (root.parent / "Monthly HR Report Automation").exists():
-        root = root.parent / "PHA Monthly HR Report Automationv1.5"
+        root = root.parent / "PHA Monthly HR Report Automationv1.6"
 
-    dist_pkg = root / "dist" / "PHA_Monthly_HR_Automation_Packagev1.5"
+    dist_pkg = root / "dist" / "PHA_Monthly_HR_Automation_Packagev1.6"
 
     print("[1/6] Menyiapkan folder paket distribusi...")
     if dist_pkg.exists():
@@ -93,9 +93,9 @@ Selamat datang! Aplikasi ini mengonsolidasikan export data bulanan SAP ke dalam 
     (dist_pkg / "RUN_ME.bat").write_text(bat_content, encoding="utf-8")
 
     # Copy Word Guidebook if present
-    word_doc = root / "PANDUAN_OPERASIONAL_HR_AUTOMATION_UPDATED.docx"
+    word_doc = root / "PHA_PANDUAN_OPERASIONAL_HR_AUTOMATION.docx"
     if word_doc.exists():
-        shutil.copy2(word_doc, dist_pkg / "PANDUAN_OPERASIONAL_HR_AUTOMATION.docx")
+        shutil.copy2(word_doc, dist_pkg / "PHA_PANDUAN_OPERASIONAL_HR_AUTOMATION.docx")
 
     print("[6/6] Mengompres folder menjadi file ZIP siap kirim...")
     zip_path = root / "dist" / "Monthly_HR_Automation_Package.zip"

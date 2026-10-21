@@ -18,13 +18,14 @@ Produces:
   - output/FINAL_HR_Topic_Report_YYYYMMDD.xlsx
   - logs/YYYYMMDD_HHMMSS_insight.xlsx (Audit integrity report)
 """
+
 import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 import pandas as pd
 
-from src.common import normalize_id, load_excel, find_column_ci, normalize_date_column
+from src.common import normalize_id, strip_leading_zeros, load_excel, find_column_ci, normalize_date_column
 from src.validator import validate_file_exists, validate_row_count
 from src.excel_export import export_df
 from src.insight_validator import validate_and_export_integrity_insight
@@ -41,7 +42,7 @@ OUT_CONTRACT     = INTER_DIR / "PHA_PA0016_With_ContractType_Description.xlsx"
 OUT_EDUCATION    = INTER_DIR / "PHA_PA0022_HighestOrder_IgnoreTraining_WithBranchText.xlsx"
 OUT_ENTITY       = INTER_DIR / "PHA_PQAH_With_Entity_DivisionDesc_Area_Function.xlsx"
 
-OUTPUT_FINAL     = Path(f"output/FINAL_HR_Topic_Report_{datetime.now():%Y%m%d}.xlsx")
+OUTPUT_FINAL     = Path(f"output/PHA_FINAL_HR_Topic_Report_{datetime.now():%Y%m%d}.xlsx")
 
 
 def _find_shared_file(candidates: List[str]) -> Optional[Path]:
@@ -148,10 +149,57 @@ def run(logger: logging.Logger) -> dict:
             ent_pno = find_column_ci(ent_df, "_pno_norm") or find_column_ci(ent_df, "Personnel No.") or find_column_ci(ent_df, "Personnel number")
             if ent_pno:
                 ent_df["_pno_norm"] = normalize_id(ent_df[ent_pno])
-                ent_cols = [c for c in ["Entity", "Division", "Area", "Function"] if find_column_ci(ent_df, c)]
-                sub_ent = ent_df[["_pno_norm"] + ent_cols].drop_duplicates(subset=["_pno_norm"])
+                sub_ent_dict = {"_pno_norm": ent_df["_pno_norm"]}
+                for col in ["Entity", "Area", "Function"]:
+                    matched = find_column_ci(ent_df, col)
+                    if matched:
+                        sub_ent_dict[col] = ent_df[matched]
+
+                # Map "Grouping Division" from intermediate file to "Division" in final report
+                grpdiv_col = find_column_ci(ent_df, "Grouping Division") or find_column_ci(ent_df, "Division")
+                if grpdiv_col:
+                    sub_ent_dict["Division"] = ent_df[grpdiv_col]
+
+                sub_ent = pd.DataFrame(sub_ent_dict).drop_duplicates(subset=["_pno_norm"])
                 pqah = pqah.merge(sub_ent, on="_pno_norm", how="left")
-                logger.info(f"[Assembler] Merged Entity/Division columns: {ent_cols}")
+
+                # Special Rule 1: Override Entity for specific Personnel Numbers based on CoCd
+                SPECIAL_ENTITY_PNOS = {"1062508", "01062508", "1137088", "01137088", "1142986", "01142986", "1142583", "01142583"}
+                COCD_ENTITY_MAP = {"8188": "OKI", "8288": "PINDOKRW"}
+
+                ent_col = find_column_ci(pqah, "Entity")
+                cocd_col = find_column_ci(pqah, "CoCd")
+                if ent_col and cocd_col:
+                    pno_clean = strip_leading_zeros(pqah["_pno_norm"])
+                    cocd_clean = normalize_id(pqah[cocd_col])
+                    clean_special_pnos = {p.lstrip("0") for p in SPECIAL_ENTITY_PNOS}
+                    mask = pno_clean.isin(clean_special_pnos) & cocd_clean.isin(COCD_ENTITY_MAP)
+                    pqah.loc[mask, ent_col] = cocd_clean.map(COCD_ENTITY_MAP)
+                    special_count = int(mask.sum())
+                    if special_count > 0:
+                        logger.info(f"[Assembler] Applied special Entity mapping for {special_count} employee(s) based on CoCd.")
+
+                # Special Rule 2: Override Division to "GENERAL AFFAIR" for specific combination
+                # Entity = "APP HEADQUARTERS", Division = "HR MILL, FORESTRY & OPERATIONS", Company Name = "Pindo Deli Pulp And Paper"
+                div_col = find_column_ci(pqah, "Division")
+                comp_col = find_column_ci(pqah, "Company Name")
+                if ent_col and div_col and comp_col:
+                    ent_s = pqah[ent_col].fillna("").astype(str).str.strip().str.upper()
+                    div_s = pqah[div_col].fillna("").astype(str).str.strip().str.upper()
+                    comp_s = pqah[comp_col].fillna("").astype(str).str.strip().str.upper()
+
+                    mask_rule2 = (
+                        (ent_s == "APP HEADQUARTERS") &
+                        (div_s == "HUMAN RESOURCES") &
+                        (comp_s == "PINDO DELI PULP AND PAPER")
+                    )
+                    pqah.loc[mask_rule2, div_col] = "GENERAL AFFAIR"
+                    rule2_count = int(mask_rule2.sum())
+                    if rule2_count > 0:
+                        logger.info(f"[Assembler] Applied special Division override to 'GENERAL AFFAIR' for {rule2_count} employee(s).")
+
+                merged_cols = [c for c in sub_ent_dict.keys() if c != "_pno_norm"]
+                logger.info(f"[Assembler] Merged Entity/Division columns: {merged_cols}")
 
         # 4. Join Contract Type & Contract End Date (Sort Valid Until descending so most recent is first)
         out_contract_path = OUT_CONTRACT if OUT_CONTRACT.exists() else (INTER_DIR / "IKP_PA0016_With_ContractType_Description.xlsx")
@@ -203,7 +251,7 @@ def run(logger: logging.Logger) -> dict:
                 logger.info(f"[Assembler] Merged Education columns: {list(sub_edu_dict.keys())[1:]}")
 
         # 6. Join General Expense Cost Center, Salary Cost Center S4 & Descriptions
-        out_cc_path = OUT_COST_CENTER if OUT_COST_CENTER.exists() else (INTER_DIR / "IT0027_Enriched_CostCenterDesc.xlsx")
+        out_cc_path = OUT_COST_CENTER
         if out_cc_path.exists():
             cc_df = load_excel(out_cc_path)
             cc_pno = find_column_ci(cc_df, "_pno_norm") or find_column_ci(cc_df, "Personnel Number") or find_column_ci(cc_df, "Personnel No.")
@@ -235,46 +283,62 @@ def run(logger: logging.Logger) -> dict:
 
         # 7. Join Direct Supervisor (NIK & Name)
         spv_raw_df = None
-        spv_path = _find_shared_file(["PHA_Direct_Spv.xlsx", "PHA_Direct Spv.xlsx"])
+        spv_path = _find_shared_file(["PHA_Direct_Spv.xlsx", "PHA_Direct Spv.xlsx", "IKP_Direct_Spv.xlsx", "IKP_Direct Spv.xlsx"])
         if spv_path:
             try:
                 spv_df = load_excel(spv_path)
                 spv_raw_df = spv_df.copy()
                 spv_pno = find_column_ci(spv_df, "Personnel") or find_column_ci(spv_df, "Personnel No.") or find_column_ci(spv_df, "Personnel number") or spv_df.columns[0]
-                spv_df["_pno_norm"] = normalize_id(spv_df[spv_pno])
-                dsup_col = find_column_ci(spv_df, "D.Superior") or find_column_ci(spv_df, "Superior NIK")
+                
+                # Strip leading zeros on BOTH sides to prevent 7-digit vs 8-digit SAP key mismatches
+                spv_df["_pno_clean"] = strip_leading_zeros(normalize_id(spv_df[spv_pno]))
+                pqah_pno_clean = strip_leading_zeros(pqah["_pno_norm"])
+
+                dsup_col = find_column_ci(spv_df, "D.Superior") or find_column_ci(spv_df, "Superior NIK") or find_column_ci(spv_df, "Direct Superior NIK")
                 name_col = find_column_ci(spv_df, "Direct Superior") or find_column_ci(spv_df, "Direct Sup") or find_column_ci(spv_df, "Superior Name")
-                sub_spv_dict = {"_pno_norm": spv_df["_pno_norm"]}
+
+                spv_dedup = spv_df.dropna(subset=["_pno_clean"]).drop_duplicates(subset=["_pno_clean"])
+
+                # Direct map avoids any '_x' / '_y' suffix column collision
                 if dsup_col:
-                    sub_spv_dict["Superior NIK"] = spv_df[dsup_col]
+                    nik_series = normalize_id(spv_dedup[dsup_col])
+                    nik_lookup = pd.Series(nik_series.values, index=spv_dedup["_pno_clean"]).to_dict()
+                    pqah["Superior NIK"] = pqah_pno_clean.map(nik_lookup).fillna("")
+                else:
+                    pqah["Superior NIK"] = ""
+
                 if name_col:
-                    sub_spv_dict["Superior Name"] = spv_df[name_col]
-                sub_spv = pd.DataFrame(sub_spv_dict).drop_duplicates(subset=["_pno_norm"])
-                pqah = pqah.merge(sub_spv, on="_pno_norm", how="left")
-                logger.info(f"[Assembler] Merged Supervisor columns from {spv_path.name}.")
+                    name_series = spv_dedup[name_col].fillna("").astype(str).str.strip()
+                    name_lookup = pd.Series(name_series.values, index=spv_dedup["_pno_clean"]).to_dict()
+                    pqah["Superior Name"] = pqah_pno_clean.map(name_lookup).fillna("")
+                else:
+                    pqah["Superior Name"] = ""
+
+                matched_count = int((pqah["Superior NIK"] != "").sum())
+                logger.info(f"[Assembler] Merged Supervisor columns from {spv_path.name}: {matched_count}/{len(pqah)} matched.")
             except Exception as e:
                 logger.warning(f"[Assembler] Could not merge Direct Supervisor from {spv_path.name}: {e}")
         else:
             logger.warning("[Assembler] Direct Supervisor file not found in Shared/.")
 
         # 8. Join Email (PA0105 / IT0105)
-        it0105_path = _find_shared_file(["PHA_PA0105.xlsx", "PHA_IT0105.xlsx", "IKP_IT0105.xlsx", "IKP_PA0105.xlsx"])
-        if it0105_path:
+        pa0105_path = _find_shared_file(["PHA_PA0105.xlsx", "PHA_IT0105.xlsx"])
+        if pa0105_path:
             try:
-                it0105_df = load_excel(it0105_path)
-                pno_105 = find_column_ci(it0105_df, "Personnel number") or find_column_ci(it0105_df, "Personnel No.") or it0105_df.columns[0]
-                email_col = find_column_ci(it0105_df, "Long ID/Number") or find_column_ci(it0105_df, "Email")
+                pa0105_df = load_excel(pa0105_path)
+                pno_105 = find_column_ci(pa0105_df, "Personnel number") or find_column_ci(pa0105_df, "Personnel No.") or pa0105_df.columns[0]
+                email_col = find_column_ci(pa0105_df, "Long ID/Number") or find_column_ci(pa0105_df, "Email")
                 if pno_105 and email_col:
-                    it0105_df["_pno_norm"] = normalize_id(it0105_df[pno_105])
+                    pa0105_df["_pno_norm"] = normalize_id(pa0105_df[pno_105])
                     sub_105 = (
-                        it0105_df.dropna(subset=[email_col])
+                        pa0105_df.dropna(subset=[email_col])
                                  .drop_duplicates(subset=["_pno_norm"])
                                  .set_index("_pno_norm")[email_col]
                     )
                     pqah["Email"] = pqah["_pno_norm"].map(sub_105)
-                    logger.info(f"[Assembler] Merged Email from {it0105_path.name}.")
+                    logger.info(f"[Assembler] Merged Email from {pa0105_path.name}.")
             except Exception as e:
-                logger.warning(f"[Assembler] Could not merge Email from {it0105_path.name}: {e}")
+                logger.warning(f"[Assembler] Could not merge Email from {pa0105_path.name}: {e}")
         else:
             logger.warning("[Assembler] PA0105 file not found in Shared/.")
 
@@ -299,24 +363,24 @@ def run(logger: logging.Logger) -> dict:
             logger.warning("[Assembler] Job Layer file not found in Shared/.")
 
         # 10. Count and Join Number of Family Members (PA0021 / IT0021)
-        it0021_path = _find_shared_file(["PHA_PA0021.xlsx", "PHA_IT0021.xlsx", "IKP_IT0021.xlsx", "IKP_IT0021.xls"])
-        if it0021_path:
+        pa0021_path = _find_shared_file(["PHA_PA0021.xlsx", "PHA_IT0021.xlsx", "IKP_IT0021.xlsx", "IKP_IT0021.xls"])
+        if pa0021_path:
             try:
-                it0021_df = load_excel(it0021_path)
-                it0021_pno = find_column_ci(it0021_df, "Personnel number") or find_column_ci(it0021_df, "Personnel No.") or it0021_df.columns[0]
-                it0021_df["_pno_norm"] = normalize_id(it0021_df[it0021_pno])
+                pa0021_df = load_excel(pa0021_path)
+                pa0021_pno = find_column_ci(pa0021_df, "Personnel number") or find_column_ci(pa0021_df, "Personnel No.") or pa0021_df.columns[0]
+                pa0021_df["_pno_norm"] = normalize_id(pa0021_df[pa0021_pno])
                 family_counts = (
-                    it0021_df.dropna(subset=["_pno_norm"])
+                    pa0021_df.dropna(subset=["_pno_norm"])
                              .groupby("_pno_norm")
                              .size()
                              .reset_index(name="Number of Family Members")
                 )
                 pqah = pqah.merge(family_counts, on="_pno_norm", how="left")
                 pqah["Number of Family Members"] = pqah["Number of Family Members"].fillna(0).astype(int)
-                logger.info(f"[Assembler] Merged 'Number of Family Members' from {it0021_path.name}.")
+                logger.info(f"[Assembler] Merged 'Number of Family Members' from {pa0021_path.name}.")
             except Exception as e:
                 pqah["Number of Family Members"] = 0
-                logger.warning(f"[Assembler] Failed to load/merge family members from {it0021_path.name}: {e} — defaulted to 0.")
+                logger.warning(f"[Assembler] Failed to load/merge family members from {pa0021_path.name}: {e} — defaulted to 0.")
         else:
             pqah["Number of Family Members"] = 0
             logger.warning("[Assembler] Family members file (PA0021) not found in Shared/ — defaulted to 0.")
@@ -342,23 +406,26 @@ def run(logger: logging.Logger) -> dict:
             else:
                 final_df[col] = ""
 
-        # Normalize date columns to DD/MM/YYYY
+        # Convert date columns to real Excel Date objects formatted as DD/MM/YYYY
         DATE_COLUMNS = [
             "Join Date", "Birth Date", "Contract End Date",
             "Position Effective Date", "Contract Start",
         ]
+        active_date_cols = []
         for dcol in DATE_COLUMNS:
             matched_dcol = find_column_ci(final_df, dcol)
             if matched_dcol:
-                final_df[matched_dcol] = normalize_date_column(final_df[matched_dcol])
-                logger.info(f"[Assembler] Date column '{matched_dcol}' normalized to DD/MM/YYYY.")
+                norm_series = normalize_date_column(final_df[matched_dcol])
+                final_df[matched_dcol] = pd.to_datetime(norm_series, format="%d/%m/%Y", errors="coerce")
+                active_date_cols.append(matched_dcol)
+                logger.info(f"[Assembler] Date column '{matched_dcol}' converted to Excel Date format.")
 
         validate_row_count(input_rows, len(final_df), module, logger)
 
         # 12. Data Integrity Insight Validation (Generates Excel report in logs/)
         validate_and_export_integrity_insight(final_df, spv_raw_df, logger)
 
-        export_df(final_df, OUTPUT_FINAL, logger)
+        export_df(final_df, OUTPUT_FINAL, logger=logger, date_columns=active_date_cols)
 
         result.update({
             "Output Rows": len(final_df),

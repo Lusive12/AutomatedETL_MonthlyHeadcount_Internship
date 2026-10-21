@@ -16,7 +16,7 @@ import logging
 from pathlib import Path
 import pandas as pd
 
-from src.common import normalize_id, load_excel, get_required_column_ci
+from src.common import normalize_id, strip_leading_zeros, load_excel, get_required_column_ci, find_column_ci
 from src.validator import validate_file_exists, validate_columns, validate_row_count
 from src.excel_export import export_df
 
@@ -27,7 +27,7 @@ OUTPUT_FILE = Path("output/intermediate/PHA_PQAH_With_Entity_DivisionDesc_Area_F
 
 
 def run(logger: logging.Logger) -> dict:
-    module = "Entity, Division, Area, Function"
+    module = "Entity, Grouping Division, Area, Function"
     result = {
         "Module": module, "Input Rows": 0, "Output Rows": 0,
         "Matched": 0, "Unmatched": 0,
@@ -61,14 +61,47 @@ def run(logger: logging.Logger) -> dict:
         master_map = pa9000_df.drop_duplicates(subset=["_pno_norm"]).set_index("_pno_norm")
 
         entity_col = get_required_column_ci(pa9000_df, "Entity")
-        div_col    = get_required_column_ci(pa9000_df, "Grouping Division")
+        grpdiv_col    = get_required_column_ci(pa9000_df, "Grouping Division")
         area_col   = get_required_column_ci(pa9000_df, "Area")
         func_col   = get_required_column_ci(pa9000_df, "Function")
 
         pqah_df["Entity"]   = pqah_df["_pno_norm"].map(master_map[entity_col])
-        pqah_df["Grouping Division"] = pqah_df["_pno_norm"].map(master_map[div_col])
+        pqah_df["Grouping Division"] = pqah_df["_pno_norm"].map(master_map[grpdiv_col])
         pqah_df["Area"]     = pqah_df["_pno_norm"].map(master_map[area_col])
         pqah_df["Function"] = pqah_df["_pno_norm"].map(master_map[func_col])
+
+        # Special Rule 1: Override Entity for specific Personnel Numbers based on CoCd
+        SPECIAL_ENTITY_PNOS = {"1062508", "01062508", "1137088", "01137088", "1142986", "01142986", "1142583", "01142583"}
+        COCD_ENTITY_MAP = {"8188": "OKI", "8288": "PINDOKRW"}
+
+        cocd_col = find_column_ci(pqah_df, "CoCd")
+        if cocd_col:
+            pno_clean = strip_leading_zeros(normalize_id(pqah_df[pqah_pno_col]))
+            cocd_clean = normalize_id(pqah_df[cocd_col])
+            clean_special_pnos = {p.lstrip("0") for p in SPECIAL_ENTITY_PNOS}
+            mask = pno_clean.isin(clean_special_pnos) & cocd_clean.isin(COCD_ENTITY_MAP)
+            pqah_df.loc[mask, "Entity"] = cocd_clean.map(COCD_ENTITY_MAP)
+            special_count = int(mask.sum())
+            if special_count > 0:
+                logger.info(f"[EntityDivision] Applied special Entity mapping for {special_count} employee(s) based on CoCd.")
+
+        # Special Rule 2: Override Division to "GENERAL AFFAIR" for specific combination
+        # Entity = "APP HEADQUARTERS", Division = "HR MILL, FORESTRY & OPERATIONS", Company Name = "Pindo Deli Pulp And Paper"
+        comp_col = find_column_ci(pqah_df, "Company Name")
+        if comp_col:
+            ent_s = pqah_df["Entity"].fillna("").astype(str).str.strip().str.upper()
+            div_s = pqah_df["Grouping Division"].fillna("").astype(str).str.strip().str.upper()
+            comp_s = pqah_df[comp_col].fillna("").astype(str).str.strip().str.upper()
+
+            mask_rule2 = (
+                (ent_s == "APP HEADQUARTERS") &
+                (div_s == "HR MILL, FORESTRY & OPERATIONS") &
+                (comp_s == "PINDO DELI PULP AND PAPER")
+            )
+            pqah_df.loc[mask_rule2, "Grouping Division"] = "GENERAL AFFAIR"
+            rule2_count = int(mask_rule2.sum())
+            if rule2_count > 0:
+                logger.info(f"[EntityDivision] Applied special Division override to 'GENERAL AFFAIR' for {rule2_count} employee(s).")
 
         matched   = int(pqah_df["Entity"].notna().sum())
         unmatched = int(pqah_df["Entity"].isna().sum())
